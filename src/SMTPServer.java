@@ -29,23 +29,6 @@ public class SMTPServer {
     private static byte [] clientName = null;
     private static byte [] messageChars = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', ' '};
 
-    /**  public SMTPServer(int port) throws IOException {
-        socket = new ServerSocket(port);
-    }
-    public void startServer() {
-        while (true){
-            try{
-                System.out.println("Waiting for Client connection on Port " + socket.getLocalPort());
-                Socket server = socket.accept();
-
-                System.out.println("Established connection to " + server.getRemoteSocketAddress());
-            }catch(IOException e) {
-                e.printStackTrace();
-                break;
-            }
-        }
-
-    } **/
 
     public static void main(String [] args) {
 
@@ -53,42 +36,63 @@ public class SMTPServer {
         ServerSocketChannel serverChannel = null;
         InetSocketAddress remoteAddress = null;
         Selector selector = null;
-
+        /** Create charset **/
         try {
             messageCharset = Charset.forName("US-ASCII");
         } catch(UnsupportedCharsetException uce) {
             System.err.println("Cannot create charset for this application. Exiting...");
             System.exit(1);
         }
-
+        /** Exit if Port isn't specified **/
         if (args.length != 1) {
             System.out.println("Please specify the port");
             System.exit(1);
         }
-
+        /** Get the Port**/
         int port = Integer.parseInt(args[0]);
-        /**try {
-            SMTPServer s = new SMTPServer(port);
-            s.startServer();
-        }catch (IOException e) {
-            e.printStackTrace();
-        }**/
+        /** Initiate the Selector **/
         try {
             selector = Selector.open();
         } catch (IOException e1) {
             e1.printStackTrace();
             System.exit(1);
         }
+        /** Initiate ServerChannel **/
         try {
             serverChannel = ServerSocketChannel.open();
             serverChannel.configureBlocking(false);
-            serverChannel.socket().bind(new InetSocketAddress(6332));
+            serverChannel.socket().bind(new InetSocketAddress(port));
             serverChannel.register(selector, SelectionKey.OP_ACCEPT);
-
 
         } catch(IOException e) {
             e.printStackTrace();
             System.exit(1);
+        }
+        /** Main loop **/
+        while(true) {
+            /** Check if selector is valid **/
+            try {
+                if(selector.select() == 0)
+                    continue;
+            } catch (IOException e) {
+                e.printStackTrace();
+                System.exit(1);
+            }
+
+            Set<SelectionKey> selectedKeys = selector.selectedKeys();
+            Iterator<SelectionKey> iter = selectedKeys.iterator();
+
+            /** While there are keys left **/
+            while (iter.hasNext()) {
+                    SelectionKey key = iter.next();
+
+                    try {
+
+                        if (key.isReadable()){
+
+                        }
+                    }
+            }
         }
     }
 }
