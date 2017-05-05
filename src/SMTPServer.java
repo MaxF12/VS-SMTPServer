@@ -2,13 +2,15 @@
  * Created by maxfranke on 04.05.17.
  */
 
+import com.sun.security.ntlm.Server;
+
 import java.io.*;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.ServerSocketChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
@@ -48,7 +50,7 @@ public class SMTPServer {
     public static void main(String [] args) {
 
 
-        SocketChannel serverChannel = null;
+        ServerSocketChannel serverChannel = null;
         InetSocketAddress remoteAddress = null;
         Selector selector = null;
 
@@ -78,10 +80,11 @@ public class SMTPServer {
             System.exit(1);
         }
         try {
-            serverChannel = SocketChannel.open();
+            serverChannel = ServerSocketChannel.open();
             serverChannel.configureBlocking(false);
-            serverChannel.bind(new InetSocketAddress(port));
+            serverChannel.socket().bind(new InetSocketAddress(6332));
             serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+
 
         } catch(IOException e) {
             e.printStackTrace();
