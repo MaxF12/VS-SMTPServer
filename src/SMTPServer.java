@@ -10,6 +10,7 @@ import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
+import java.nio.channels.SocketChannel;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
@@ -28,7 +29,6 @@ public class SMTPServer {
 
     private static byte [] clientName = null;
     private static byte [] messageChars = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', ' '};
-
 
     public static void main(String [] args) {
 
@@ -68,31 +68,41 @@ public class SMTPServer {
             e.printStackTrace();
             System.exit(1);
         }
-        /** Main loop **/
+        /** Main program loop **/
         while(true) {
-            /** Check if selector is valid **/
+            /** Create Channel and check for new Connections **/
+            SocketChannel socketChannel = null;
             try {
-                if(selector.select() == 0)
-                    continue;
+                socketChannel = serverChannel.accept();
             } catch (IOException e) {
                 e.printStackTrace();
                 System.exit(1);
             }
-
-            Set<SelectionKey> selectedKeys = selector.selectedKeys();
-            Iterator<SelectionKey> iter = selectedKeys.iterator();
-
-            /** While there are keys left **/
-            while (iter.hasNext()) {
-                    SelectionKey key = iter.next();
-
-                    try {
-
-                        if (key.isReadable()){
-
-                        }
-                    }
+            /** If there is a new Connection...**/
+            if (socketChannel != null) {
+                /** Print the Remote address **/
+                try {
+                    System.out.println("Connected to " + socketChannel.getRemoteAddress());
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                /** Allocate ByteBuffer for the Message **/
+                ByteBuffer buf = ByteBuffer.allocate(8124);
+                int bytesRead = 0;
+                /** Read the Message into the ByteBuffer **/
+                try {
+                    bytesRead = socketChannel.read(buf);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    System.exit(1);
+                }
+                /** Print the Message
+                buf.flip();
+                while (buf.hasRemaining()){
+                    System.out.print(((char) buf.get()));
+                } **/
             }
+
         }
     }
 }
