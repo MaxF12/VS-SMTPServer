@@ -8,10 +8,7 @@ import java.io.*;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.SocketChannel;
-import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.*;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
@@ -21,8 +18,17 @@ import java.util.Set;
 
 
 public class SMTPServer {
+    /** The port on which the Server runs**/
+    private int port;
 
+    /** The ServerSocket **/
     private ServerSocket socket;
+
+    /** The Channel that will handle the connections**/
+    ServerSocketChannel serverChannel = null;
+
+    /** The Selector we need to monitor **/
+    Selector selector = null;
 
     private static Charset messageCharset = null;
     private static CharsetDecoder decoder = null;
@@ -30,12 +36,133 @@ public class SMTPServer {
     private static byte [] clientName = null;
     private static byte [] messageChars = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', ' '};
 
-    public static void main(String [] args) {
+    public SMTPServer(int port) {
+        this.port = port;
+    }
 
+    /** Accepts a Connection, registers new channel to monitor **/
+    private void accept(SelectionKey key) throws IOException{
+        System.out.println("Key can be accepted");
 
-        ServerSocketChannel serverChannel = null;
-        InetSocketAddress remoteAddress = null;
-        Selector selector = null;
+        /** get Channel from key **/
+        ServerSocketChannel keyChannel = (ServerSocketChannel) key.channel();
+
+        /** Try to accept the connection **/
+        try {
+            /** Create new Channel for connection **/
+            SocketChannel socketChannel = keyChannel.accept();
+
+            /** Print remote Address **/
+            System.out.println("Connected to " + socketChannel.getRemoteAddress());
+
+            /** Set new channel to non Blocking **/
+            socketChannel.configureBlocking(false);
+
+            /** Register new Channel with Selector **/
+            socketChannel.register(this.selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+
+            /** Create new ServerState **/
+        } catch (ClosedChannelException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void read(SelectionKey key) throws IOException {
+
+        System.out.println("Key can be read");
+
+        SocketChannel socketChannel = (SocketChannel) key.channel();
+
+        ByteBuffer buffer = ByteBuffer.allocate(8192);
+
+        int len = 0;
+
+        try{
+            len = socketChannel.read(buffer);
+        }catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        if (len == -1){
+            key.channel().close();
+            key.cancel();
+            return;
+        }
+
+        System.out.println("Read the Message");
+    }
+    private void sendMessage(SelectionKey key, String message) throws IOException {
+
+        SocketChannel socketChannel = (SocketChannel) key.channel();
+        ByteBuffer buf = ByteBuffer.allocate(message.length());
+        buf.clear();
+        buf.put(message.getBytes(messageCharset));
+
+        buf.flip();
+
+        while (buf.hasRemaining()){
+            socketChannel.write(buf);
+        }
+
+    }
+    /** Sends "HELO" to the Client **/
+    private void sendHelo(SelectionKey key) throws IOException{
+
+        String message = "220";
+
+        SMTPServerState state = (SMTPServerState) key.attachment();
+        state.setState(SMTPServerState.HELORECEIVED);
+    }
+    /** Starts (and runs) the Server **/
+    private void start() throws IOException{
+        while(true) {
+
+            /** Create Channel and check for new Connections **/
+            try {
+                if (this.selector.select() == 0)
+                    continue;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            Set<SelectionKey> selectionKeys = this.selector.selectedKeys();
+            Iterator<SelectionKey> iter = selectionKeys.iterator();
+            while(iter.hasNext()){
+                //System.out.println("Key available");
+                SelectionKey key = (SelectionKey) iter.next();
+                iter.remove();
+
+                if (!key.isValid()){
+                    System.out.println("Invalid Key!");
+                }
+
+                if (key.isAcceptable()){
+                    this.accept(key);
+                }else if (key.isReadable()){
+                    if (key.attachment() != null){
+                        this.read(key);
+                    }
+                }else if (key.isConnectable()){
+                    System.out.println("Key can be connected");
+                }else if (key.isWritable()){
+                    if (key.attachment() == null){
+                        SMTPServerState state = new SMTPServerState();
+                        key.attach(state);
+                    }
+                    //System.out.println("Key can be written");
+                    SMTPServerState state = (SMTPServerState) key.attachment();
+                    if (state.getState() == SMTPServerState.CONNECTED){
+                        this.sendHelo(key);
+                        System.out.println("220 sent" + state.getState());
+                    }
+                }
+            }
+        }
+    }
+
+    /** Initialises the Server **/
+    private void init() throws IOException {
         /** Create charset **/
         try {
             messageCharset = Charset.forName("US-ASCII");
@@ -43,13 +170,6 @@ public class SMTPServer {
             System.err.println("Cannot create charset for this application. Exiting...");
             System.exit(1);
         }
-        /** Exit if Port isn't specified **/
-        if (args.length != 1) {
-            System.out.println("Please specify the port");
-            System.exit(1);
-        }
-        /** Get the Port**/
-        int port = Integer.parseInt(args[0]);
         /** Initiate the Selector **/
         try {
             selector = Selector.open();
@@ -61,48 +181,36 @@ public class SMTPServer {
         try {
             serverChannel = ServerSocketChannel.open();
             serverChannel.configureBlocking(false);
-            serverChannel.socket().bind(new InetSocketAddress(port));
+            serverChannel.socket().bind(new InetSocketAddress(this.port));
             serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
         } catch(IOException e) {
             e.printStackTrace();
             System.exit(1);
         }
-        /** Main program loop **/
-        while(true) {
-            /** Create Channel and check for new Connections **/
-            SocketChannel socketChannel = null;
-            try {
-                socketChannel = serverChannel.accept();
-            } catch (IOException e) {
-                e.printStackTrace();
-                System.exit(1);
-            }
-            /** If there is a new Connection...**/
-            if (socketChannel != null) {
-                /** Print the Remote address **/
-                try {
-                    System.out.println("Connected to " + socketChannel.getRemoteAddress());
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                /** Allocate ByteBuffer for the Message **/
-                ByteBuffer buf = ByteBuffer.allocate(8124);
-                int bytesRead = 0;
-                /** Read the Message into the ByteBuffer **/
-                try {
-                    bytesRead = socketChannel.read(buf);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    System.exit(1);
-                }
-                /** Print the Message
-                buf.flip();
-                while (buf.hasRemaining()){
-                    System.out.print(((char) buf.get()));
-                } **/
-            }
+    }
 
+    public static void main(String [] args) {
+
+        /** Exit if Port isn't specified **/
+        if (args.length != 1) {
+            System.out.println("Please specify the port");
+            System.exit(1);
+        }
+        /** Get the Port**/
+        int port = Integer.parseInt(args[0]);
+        SMTPServer server = new SMTPServer(port);
+        /** Initialises the Server **/
+        try{
+
+            server.init();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try{
+            server.start();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }
