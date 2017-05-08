@@ -71,49 +71,41 @@ public class SMTPServer {
 
     private void read(SelectionKey key) throws IOException {
 
-        System.out.println("Key can be read");
-
         SocketChannel socketChannel = (SocketChannel) key.channel();
 
-        ByteBuffer buffer = ByteBuffer.allocate(8192);
+        ByteBuffer buf = ByteBuffer.allocate(8192);
 
         int len = 0;
 
+        /** reads the Channel daza into buf **/
         try{
-            len = socketChannel.read(buffer);
+            len = socketChannel.read(buf);
         }catch (IOException e) {
             e.printStackTrace();
         }
 
-        if (len == -1){
-            key.channel().close();
-            key.cancel();
-            return;
+        buf.flip();
+        while (buf.hasRemaining()){
+            System.out.print((char) buf.get());
         }
-
-        System.out.println("Read the Message");
     }
     private void sendMessage(SelectionKey key, String message) throws IOException {
 
         SocketChannel socketChannel = (SocketChannel) key.channel();
         ByteBuffer buf = ByteBuffer.allocate(message.length());
         buf.clear();
+
         buf.put(message.getBytes(messageCharset));
 
         buf.flip();
 
-        while (buf.hasRemaining()){
-            socketChannel.write(buf);
-        }
-
+        socketChannel.write(buf);
     }
-    /** Sends "HELO" to the Client **/
-    private void sendHelo(SelectionKey key) throws IOException{
+    /** Sends "220" to the Client **/
+    private void send220(SelectionKey key) throws IOException{
 
-        String message = "220";
+        this.sendMessage(key, "220 127.0.0.1\r\n");
 
-        SMTPServerState state = (SMTPServerState) key.attachment();
-        state.setState(SMTPServerState.HELORECEIVED);
     }
     /** Starts (and runs) the Server **/
     private void start() throws IOException{
@@ -153,8 +145,9 @@ public class SMTPServer {
                     //System.out.println("Key can be written");
                     SMTPServerState state = (SMTPServerState) key.attachment();
                     if (state.getState() == SMTPServerState.CONNECTED){
-                        this.sendHelo(key);
-                        System.out.println("220 sent" + state.getState());
+                        this.send220(key);
+                        System.out.println("220 sent");
+                        state.setState(SMTPServerState.HELORECEIVED);
                     }
                 }
             }
@@ -200,14 +193,12 @@ public class SMTPServer {
         /** Get the Port**/
         int port = Integer.parseInt(args[0]);
         SMTPServer server = new SMTPServer(port);
-        /** Initialises the Server **/
-        try{
 
-            server.init();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
         try{
+            /** Initialises the Server **/
+            server.init();
+
+            /** Starts the Server **/
             server.start();
         } catch (IOException e) {
             e.printStackTrace();
