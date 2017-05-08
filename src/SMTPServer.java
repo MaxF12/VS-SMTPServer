@@ -69,7 +69,8 @@ public class SMTPServer {
         }
     }
 
-    private void read(SelectionKey key) throws IOException {
+    /** Reads availavle message from channel and returns it as a String **/
+    private String read(SelectionKey key) throws IOException {
 
         SocketChannel socketChannel = (SocketChannel) key.channel();
 
@@ -77,7 +78,7 @@ public class SMTPServer {
 
         int len = 0;
 
-        /** reads the Channel daza into buf **/
+        /** reads the Channel data into buf **/
         try{
             len = socketChannel.read(buf);
         }catch (IOException e) {
@@ -85,9 +86,19 @@ public class SMTPServer {
         }
 
         buf.flip();
-        while (buf.hasRemaining()){
-            System.out.print((char) buf.get());
-        }
+
+        /** Create Byte Array **/
+        byte[] bytes = new byte[buf.remaining()];
+
+        /** Load Bytes from buf into bytes **/
+        buf.get(bytes);
+
+        /** Turn bytes into String using messageCharset format **/
+        String message = new String(bytes, messageCharset);
+
+        System.out.print(message);
+
+        return message;
     }
     private void sendMessage(SelectionKey key, String message) throws IOException {
 
@@ -132,11 +143,14 @@ public class SMTPServer {
                 if (key.isAcceptable()){
                     this.accept(key);
                 }else if (key.isReadable()){
+                    String payload;
                     if (key.attachment() != null){
-                        this.read(key);
+                        payload = this.read(key);
                     }
+                    /** TODO: Analyse payload and determine what state to put the Server in next **/
                 }else if (key.isConnectable()){
                     System.out.println("Key can be connected");
+                    /** TODO: Is the key ever connectable? **/
                 }else if (key.isWritable()){
                     if (key.attachment() == null){
                         SMTPServerState state = new SMTPServerState();
@@ -149,6 +163,7 @@ public class SMTPServer {
                         System.out.println("220 sent");
                         state.setState(SMTPServerState.HELORECEIVED);
                     }
+                    /** TODO: Add handling for all other possible States **/
                 }
             }
         }

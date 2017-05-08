@@ -8,6 +8,7 @@ public class SMTPServerState {
 
     public final static int CONNECTED = 0;
     public final static int HELORECEIVED = 1;
+    /** TODO: Add the remaining states **/
 
     private int state;
     private int previousState;
