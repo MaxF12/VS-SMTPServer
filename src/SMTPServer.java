@@ -2,17 +2,14 @@
  * Created by maxfranke on 04.05.17.
  */
 
-import com.sun.security.ntlm.Server;
-
 import java.io.*;
 import java.net.*;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.channels.*;
-import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.UnsupportedCharsetException;
+import java.nio.file.*;
 import java.util.Iterator;
 import java.util.Set;
 
@@ -24,11 +21,15 @@ public class SMTPServer {
     /** The ServerSocket **/
     private ServerSocket socket;
 
+    private int curId;
     /** The Channel that will handle the connections**/
     ServerSocketChannel serverChannel = null;
 
     /** The Selector we need to monitor **/
     Selector selector = null;
+
+    /** The Path for the Directory **/
+    Path path = null;
 
     private static Charset messageCharset = null;
     private static CharsetDecoder decoder = null;
@@ -61,7 +62,10 @@ public class SMTPServer {
             /** Register new Channel with Selector **/
             socketChannel.register(this.selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
 
-            /** Create new ServerState **/
+            /** Create new ServerState and attach it to key**/
+            SMTPServerState state = new SMTPServerState(curId);
+            this.curId++;
+            socketChannel.keyFor(this.selector).attach(state);
         } catch (ClosedChannelException e) {
             e.printStackTrace();
         } catch (IOException e) {
@@ -69,7 +73,7 @@ public class SMTPServer {
         }
     }
 
-    /** Reads availavle message from channel and returns it as a String **/
+    /** Reads available message from channel and returns it as a String **/
     private String read(SelectionKey key) throws IOException {
 
         SocketChannel socketChannel = (SocketChannel) key.channel();
@@ -100,6 +104,7 @@ public class SMTPServer {
 
         return message;
     }
+    /** Sends "message" in ASCII to Client **/
     private void sendMessage(SelectionKey key, String message) throws IOException {
 
         SocketChannel socketChannel = (SocketChannel) key.channel();
@@ -112,11 +117,72 @@ public class SMTPServer {
 
         socketChannel.write(buf);
     }
-    /** Sends "220" to the Client **/
-    private void send220(SelectionKey key) throws IOException{
 
-        this.sendMessage(key, "220 127.0.0.1\r\n");
+    /** Returns the Operation from a String **/
+    private String getOP(String payload) throws IOException{
+        String[] splited = payload.split("\\s+");
+        return splited[0];
+    }
 
+    /** Returns the Data from a String **/
+    private String getSender(String payload) throws IOException{
+        String[] splited = payload.split("\\:");
+        return splited[1].substring(1);
+    }
+
+    private void handleMSG(String payload, SelectionKey key, SMTPServerState state) throws  IOException{
+        String OP = this.getOP(payload);
+
+        System.out.println(OP);
+        switch (OP){
+            case "HELO":
+                state.setState(SMTPServerState.HELORECEIVED);
+                break;
+            case "MAIL":
+                state.setFrom(this.getSender(payload));
+                state.setState(SMTPServerState.MLFRMRECEIVED);
+                break;
+            case "RCPT":
+                state.setTo(this.getSender(payload));
+                state.setState(SMTPServerState.RCPTTORECEIVED);
+                break;
+            case "HELP":
+                state.setState(SMTPServerState.HELPRECEIVED);
+                break;
+            case "DATA":
+                state.setState(SMTPServerState.DATARECEIVED);
+                break;
+            default:
+                state.setMessage(payload);
+                break;
+        }
+        state.switchSent();
+    }
+
+    private void handleReply(SelectionKey key, SMTPServerState state) throws IOException{
+
+        switch (state.getState()){
+            case SMTPServerState.CONNECTED:
+                this.sendMessage(key, "220 127.0.0.1\r\n");
+                System.out.println("220 sent");
+                break;
+            case SMTPServerState.HELORECEIVED:
+                this.sendMessage(key, "250 Privyet Tovarish\r\n");
+                System.out.println("220 Helo sent");
+                break;
+            case SMTPServerState.MLFRMRECEIVED:
+            case SMTPServerState.RCPTTORECEIVED:
+            case SMTPServerState.DATARECEIVED:
+                this.sendMessage(key, "250 OK\r\n");
+                System.out.println("250 OK sent");
+                break;
+            case SMTPServerState.HELPRECEIVED:
+                this.sendMessage(key, "214 HELP\r\n");
+                System.out.println("214 HELP sent");
+                break;
+        }
+
+        state.switchSent();
     }
     /** Starts (and runs) the Server **/
     private void start() throws IOException{
@@ -136,33 +202,25 @@ public class SMTPServer {
                 SelectionKey key = (SelectionKey) iter.next();
                 iter.remove();
 
+                SMTPServerState state = (SMTPServerState) key.attachment();
+
                 if (!key.isValid()){
                     System.out.println("Invalid Key!");
                 }
 
                 if (key.isAcceptable()){
                     this.accept(key);
-                }else if (key.isReadable()){
-                    String payload;
-                    if (key.attachment() != null){
-                        payload = this.read(key);
-                    }
+                }else if (key.isReadable() && state.hasSent()){
+                    String payload = this.read(key);
+                    this.handleMSG(payload, key, state);
+
                     /** TODO: Analyse payload and determine what state to put the Server in next **/
                 }else if (key.isConnectable()){
                     System.out.println("Key can be connected");
                     /** TODO: Is the key ever connectable? **/
-                }else if (key.isWritable()){
-                    if (key.attachment() == null){
-                        SMTPServerState state = new SMTPServerState();
-                        key.attach(state);
-                    }
-                    //System.out.println("Key can be written");
-                    SMTPServerState state = (SMTPServerState) key.attachment();
-                    if (state.getState() == SMTPServerState.CONNECTED){
-                        this.send220(key);
-                        System.out.println("220 sent");
-                        state.setState(SMTPServerState.HELORECEIVED);
-                    }
+                }else if (key.isWritable() && !state.hasSent()){
+                    System.out.println("Key can be written");
+                    this.handleReply(key, state);
                     /** TODO: Add handling for all other possible States **/
                 }
             }
@@ -196,6 +254,21 @@ public class SMTPServer {
             e.printStackTrace();
             System.exit(1);
         }
+
+        /** Initialize Path and create "Emails" directory if it doesn't already exist**/
+        this.path = Paths.get("./Emails");
+        try {
+            Files.createDirectory(path);
+        } catch(FileAlreadyExistsException e){
+            // the directory already exists.
+            System.out.println("Emails exists");
+        } catch (IOException e) {
+            //something else went wrong
+            e.printStackTrace();
+        }
+
+        /** Init message Id**/
+        this.curId = 0;
     }
 
     public static void main(String [] args) {

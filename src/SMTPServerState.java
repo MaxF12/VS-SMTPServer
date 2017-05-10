@@ -3,24 +3,37 @@
  */
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 
 public class SMTPServerState {
 
     public final static int CONNECTED = 0;
     public final static int HELORECEIVED = 1;
+    public final static int MLFRMRECEIVED = 2;
+    public final static int RCPTTORECEIVED = 3;
+    public final static int DATARECEIVED = 4;
+    public final static int MSGRECEIVED = 5;
+    public final static int QUITRECEIVED = 6;
+    public final static int HELPRECEIVED = 7;
+
     /** TODO: Add the remaining states **/
 
     private int state;
     private int previousState;
-    private ByteBuffer buffer;
-    private byte [] from;
-    private byte [] to;
-    private byte [] message;
+    private String  from;
+    private ArrayList<String> to;
+    private String message;
+    private boolean sent;
+    private int id;
 
-    public void SMTPClientState() {
+    public SMTPServerState(int id) {
         this.state = CONNECTED;
-        this.buffer = ByteBuffer.allocate(8192);
+        this.sent = false;
+        this.to  = new ArrayList<String>();
+        this.id = id;
     }
+
+    public int getId() {return this.id;}
 
     public int getState() {
         return this.state;
@@ -30,30 +43,27 @@ public class SMTPServerState {
         this.state = state;
     }
 
-    public ByteBuffer getByteBuffer() {
-        return this.buffer;
-    }
-
-    public byte[] getFrom() {
+    public String getFrom() {
         return this.from;
     }
 
-    public void setFrom(byte[] from){
-        this.from = from;
-    }
-    public byte[] getTo() {
+    public void setFrom(String from){this.from = from;}
+
+    public ArrayList<String> getTo() {
         return to;
     }
 
-    public void setTo(byte[] to) {
-        this.to = to;
-    }
+    public void setTo(String to) {this.to.add(to);}
 
-    public byte[] getMessage() {
+    public void switchSent() {if (this.sent) this.sent = false; else this.sent = true;}
+
+    public boolean hasSent() {return this.sent;}
+
+    public String getMessage() {
         return message;
     }
 
-    public void setMessage(byte[] message) {
+    public void setMessage(String message) {
         this.message = message;
     }
 
