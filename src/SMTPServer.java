@@ -10,8 +10,8 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.UnsupportedCharsetException;
 import java.nio.file.*;
-import java.util.Iterator;
-import java.util.Set;
+import java.util.*;
+import java.util.logging.StreamHandler;
 
 
 public class SMTPServer {
@@ -36,6 +36,11 @@ public class SMTPServer {
 
     private static byte [] clientName = null;
     private static byte [] messageChars = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', ' '};
+
+    StreamHandler txtOut;
+
+    /** Controller for server Loop**/
+    static boolean running=false;
 
     public SMTPServer(int port) {
         this.port = port;
@@ -67,8 +72,12 @@ public class SMTPServer {
             this.curId++;
             socketChannel.keyFor(this.selector).attach(state);
         } catch (ClosedChannelException e) {
+
+            /**Channel is closed or blocked**/
             e.printStackTrace();
         } catch (IOException e) {
+
+            /**Channels connection couldn't be accepted**/
             e.printStackTrace();
         }
     }
@@ -77,9 +86,7 @@ public class SMTPServer {
     private String read(SelectionKey key) throws IOException {
 
         SocketChannel socketChannel = (SocketChannel) key.channel();
-
         ByteBuffer buf = ByteBuffer.allocate(8192);
-
         int len = 0;
 
         /** reads the Channel data into buf **/
@@ -99,8 +106,9 @@ public class SMTPServer {
 
         /** Turn bytes into String using messageCharset format **/
         String message = new String(bytes, messageCharset);
+        //String[] splited = message.split("\\r?\\n.\\r?\\n");
 
-        System.out.print(message);
+        System.out.println("read: "+message);
 
         return message;
     }
@@ -110,11 +118,8 @@ public class SMTPServer {
         SocketChannel socketChannel = (SocketChannel) key.channel();
         ByteBuffer buf = ByteBuffer.allocate(message.length());
         buf.clear();
-
         buf.put(message.getBytes(messageCharset));
-
         buf.flip();
-
         socketChannel.write(buf);
     }
 
@@ -130,10 +135,11 @@ public class SMTPServer {
         return splited[1].substring(1);
     }
 
+    //** Handles received Message and evaluates the new server state **/
     private void handleMSG(String payload, SelectionKey key, SMTPServerState state) throws  IOException{
         String OP = this.getOP(payload);
 
-        System.out.println(OP);
+        //System.out.println(OP);
         switch (OP){
             case "HELO":
                 state.setState(SMTPServerState.HELORECEIVED);
@@ -152,13 +158,20 @@ public class SMTPServer {
             case "DATA":
                 state.setState(SMTPServerState.DATARECEIVED);
                 break;
+            case "QUIT":
+                state.setState(SMTPServerState.QUITRECEIVED);
+                break;
             default:
                 state.setMessage(payload);
+                createReceiverFolder(state.getTo());
+                createReceiverFile(state.getFrom(),state.getTo(), payload);
+                state.setState(SMTPServerState.MSGRECEIVED);
                 break;
         }
         state.switchSent();
     }
 
+    //** Determines the server response based on server state **/
     private void handleReply(SelectionKey key, SMTPServerState state) throws IOException{
 
         switch (state.getState()){
@@ -168,25 +181,97 @@ public class SMTPServer {
                 break;
             case SMTPServerState.HELORECEIVED:
                 this.sendMessage(key, "250 Privyet Tovarish\r\n");
-                System.out.println("220 Helo sent");
+                System.out.println("250 Privyet Tovarish sent");
                 break;
             case SMTPServerState.MLFRMRECEIVED:
-            case SMTPServerState.RCPTTORECEIVED:
-            case SMTPServerState.DATARECEIVED:
                 this.sendMessage(key, "250 OK\r\n");
-                System.out.println("250 OK sent");
+                System.out.println("250 OK\r\n");
+                break;
+            case SMTPServerState.RCPTTORECEIVED:
+                this.sendMessage(key, "250 OK\r\n");
+                System.out.println("250 OK\r\n");
+                break;
+            case SMTPServerState.DATARECEIVED:
+                this.sendMessage(key, "354 start mail\r\n");
+                System.out.println("354 start mail input sent");
                 break;
             case SMTPServerState.HELPRECEIVED:
                 this.sendMessage(key, "214 HELP\r\n");
                 System.out.println("214 HELP sent");
                 break;
+            case SMTPServerState.QUITRECEIVED:
+                this.sendMessage(key, "221 Closing Channel\r\n");
+                key.channel().close();
+                System.out.println("221 Closing Channel");
+                break;
+            case SMTPServerState.MSGRECEIVED:
+                this.sendMessage(key, "250 OK\r\n");
+                System.out.println("250 OK\r\n");
+                break;
         }
 
         state.switchSent();
     }
+
+
+
+    //** Creates receiver folder structure **/
+    private void createReceiverFolder(ArrayList<String> arrayList){
+        if(arrayList==null || arrayList.isEmpty())return;
+
+        for(String s:arrayList){
+            //get receiver name
+            //String[] sender=s.split("@");
+            //s=sender[0];
+            System.out.println("Created new path: " + s);
+            //add receiver to Path
+            this.path = Paths.get("./Emails"+"/"+s);
+
+            try {
+                Files.createDirectory(path);
+            } catch(FileAlreadyExistsException e){
+                // the directory already exists.
+                System.out.println("Emails exists");
+            } catch (IOException e) {
+                //something else went wrong
+                e.printStackTrace();
+            }}
+    }
+
+    //** Creates receiver files **/
+    private void createReceiverFile(String from, ArrayList<String> to, String message)
+    {
+        Random rand= new Random();
+        if(from==null || to==null || from.isEmpty() || to.isEmpty())
+            return;
+
+        for(String s:to)
+        {
+            //get receiver name
+            //String[] sender=s.split("@");
+            //s=sender[0];
+            //System.out.println("s"+s);
+
+            //add receiver to Path
+            this.path = Paths.get("./Emails"+"/"+s+"/"+from+"_"+rand.nextInt(10000)+".txt");
+
+            try {
+                // Create the empty file with default permissions, etc.
+                java.nio.file.Files.write(this.path,message.getBytes("utf-8"), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            } catch (FileAlreadyExistsException x) {
+                System.err.format("file named %s" +
+                        " already exists%n", path);
+            } catch (IOException x) {
+                // Some other sort of failure, such as permissions.
+                System.err.format("createFile error: %s%n", x);
+            }
+        }
+    }
+
+
     /** Starts (and runs) the Server **/
     private void start() throws IOException{
-        while(true) {
+        while(running) {
 
             /** Create Channel and check for new Connections **/
             try {
@@ -213,16 +298,28 @@ public class SMTPServer {
                 }else if (key.isReadable() && state.hasSent()){
                     String payload = this.read(key);
                     this.handleMSG(payload, key, state);
-
+                    //System.out.println("payload: "+payload);
                     /** TODO: Analyse payload and determine what state to put the Server in next **/
                 }else if (key.isConnectable()){
                     System.out.println("Key can be connected");
                     /** TODO: Is the key ever connectable? **/
+
                 }else if (key.isWritable() && !state.hasSent()){
-                    System.out.println("Key can be written");
                     this.handleReply(key, state);
                     /** TODO: Add handling for all other possible States **/
+                }else if (key.isWritable() && state.hasSent()){
+                    //Idle waiting
+
+                }else if (!key.isWritable() && state.hasSent()){
+                    //State never hit in tests
+
+                }else if (!key.isWritable() && !state.hasSent()){
+                    //State never hit in tests
+                }else if (!key.isConnectable()){
+                    System.out.println("Key cannot be connected");
+                    /** TODO: Is the key ever connectable? **/
                 }
+
             }
         }
     }
@@ -251,6 +348,7 @@ public class SMTPServer {
             serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
         } catch(IOException e) {
+            /** Initiate ServerChannel failed**/
             e.printStackTrace();
             System.exit(1);
         }
@@ -278,13 +376,16 @@ public class SMTPServer {
             System.out.println("Please specify the port");
             System.exit(1);
         }
-        /** Get the Port**/
+        /** Get the Port by parsing the first argument**/
         int port = Integer.parseInt(args[0]);
         SMTPServer server = new SMTPServer(port);
 
         try{
-            /** Initialises the Server **/
+            /** Initializes the Server **/
             server.init();
+
+            /** allow the Server to loop **/
+            running=true;
 
             /** Starts the Server **/
             server.start();
